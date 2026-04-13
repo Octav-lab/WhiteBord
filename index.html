@@ -93,21 +93,16 @@
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, onSnapshot, addDoc, updateDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- Configurare Firebase ---
-        let firebaseConfig = {};
-        let appId = 'default-app-id';
-
-        // Încercăm să luăm config-ul din mediu
-        try {
-            if (typeof __firebase_config !== 'undefined') {
-                firebaseConfig = JSON.parse(__firebase_config);
-            }
-            if (typeof __app_id !== 'undefined') {
-                appId = __app_id;
-            }
-        } catch (e) {
-            console.warn("Nu am putut încărca configurarea globală Firebase. Se va folosi modul offline dacă nu este configurat.");
-        }
+  // --- Configurare Firebase ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyALeqIvCZ4YUBJ64Yl-GlaL9qt1qjQSjpo",
+            authDomain: "whiteboard-app-e43d5.firebaseapp.com",
+            projectId: "whiteboard-app-e43d5",
+            storageBucket: "whiteboard-app-e43d5.firebasestorage.app",
+            messagingSenderId: "877486785505",
+            appId: "1:877486785505:web:509c287059349ad10ec8a0"
+        };
+        const appId = "tabla-mea-publica";
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);

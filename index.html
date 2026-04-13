@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tablă Colaborativă în Timp Real</title>
+    <!-- Tailwind CSS pentru stilizare -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html { margin: 0; padding: 0; overflow: hidden; touch-action: none; }
+        #canvas { cursor: crosshair; }
+        #canvas.pointer-mode { cursor: default; }
+        /* Stiluri pentru butoane active */
+        .tool-active { background-color: #dbeafe !important; color: #2563eb !important; box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05); }
+        .color-active { transform: scale(1.25); border-color: #9ca3af !important; z-index: 10; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); }
+    </style>
+</head>
+<body class="relative w-full h-screen bg-gray-100 select-none">
+
+    <!-- Ecran de încărcare -->
+    <div id="loadingOverlay" class="absolute inset-0 z-50 flex items-center justify-center bg-gray-100 text-gray-800 backdrop-blur-sm transition-opacity duration-300">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+        <span class="ml-4 font-semibold text-lg">Se conectează la sesiune...</span>
+    </div>
+
+    <!-- Canvas pentru desen -->
+    <canvas id="canvas" class="absolute top-0 left-0 bg-white transition-colors duration-300"></canvas>
+
+    <!-- Bara de Unelte -->
+    <div id="toolbar" class="hidden absolute top-4 left-1/2 transform -translate-x-1/2 bg-white/90 backdrop-blur-md shadow-lg rounded-2xl p-3 flex items-center space-x-4 border border-gray-200 w-max max-w-[95%] overflow-x-auto">
+        
+        <!-- Toggle Temă -->
+        <button id="btnTheme" class="p-2 rounded-xl transition-all font-medium text-sm flex items-center space-x-2 bg-gray-100 text-gray-800 hover:bg-gray-200" title="Schimbă aspectul tablei">
+            <span>☀️ Tablă Albă</span>
+        </button>
+
+        <div class="w-px h-8 bg-gray-300 shrink-0"></div>
+
+        <!-- Unelte: Mutare, Creion, Radieră -->
+        <div class="flex space-x-1 shrink-0">
+            <button id="btnPointer" class="tool-btn p-2 rounded-xl transition-all text-gray-600 hover:bg-gray-100" title="Mută Imagini">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="m13 13 6 6"/></svg>
+            </button>
+            <button id="btnPen" class="tool-btn tool-active p-2 rounded-xl transition-all text-gray-600 hover:bg-gray-100" title="Creion">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+            </button>
+            <button id="btnEraser" class="tool-btn p-2 rounded-xl transition-all text-gray-600 hover:bg-gray-100" title="Radieră">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
+            </button>
+        </div>
+
+        <div class="w-px h-8 bg-gray-300 shrink-0"></div>
+
+        <!-- Selector Culori -->
+        <div id="colorContainer" class="flex space-x-1 shrink-0 px-1">
+            <!-- Generate din JS -->
+        </div>
+
+        <div class="w-px h-8 bg-gray-300 shrink-0"></div>
+
+        <!-- Grosime Linie -->
+        <div class="flex items-center space-x-2 px-2 shrink-0">
+            <span class="text-xs font-semibold text-gray-500">Grosime:</span>
+            <input type="range" id="lineWidth" min="1" max="20" value="3" class="w-20 accent-blue-500">
+        </div>
+
+        <div class="w-px h-8 bg-gray-300 shrink-0"></div>
+
+        <!-- Butoane Acțiuni -->
+        <div class="flex space-x-2 shrink-0">
+            <label class="cursor-pointer p-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all flex items-center space-x-1 font-medium text-sm" title="Adaugă o imagine pe tablă">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                <span>Imagine</span>
+                <input type="file" id="imageInput" accept="image/*" class="hidden">
+            </label>
+
+            <button id="btnClear" class="p-2 rounded-xl transition-all flex items-center space-x-1 font-medium text-sm bg-red-50 text-red-600 hover:bg-red-100" title="Curăță tabla complet">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                <span id="btnClearText" class="hidden sm:inline">Șterge Tot</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Indicator Live -->
+    <div class="absolute bottom-4 right-4 bg-black/60 text-white px-3 py-1.5 rounded-full text-xs font-semibold flex items-center space-x-2 backdrop-blur-sm pointer-events-none">
+        <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+        <span>Sincronizat Real</span>
+    </div>
+
+    <!-- Scriptul Principal (Tip Module pentru Firebase v9) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, addDoc, updateDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Configurare Firebase ---
+        // (Pentru rularea în acest mediu; când îl pui pe GitHub pui aici datele tale)
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // --- Stare Aplicație ---
+        let state = {
+            user: null,
+            elements: [],
+            theme: 'whiteboard', // 'whiteboard' sau 'blackboard'
+            tool: 'pen',         // 'pen', 'eraser', 'pointer'
+            color: '#ef4444',
+            lineWidth: 3
+        };
+
+        const imageCache = {};
+        let isDrawing = false;
+        let currentPath = [];
+        let lastPos = { x: 0, y: 0 };
+        
+        let isDragging = false;
+        let draggedElement = null;
+        let dragOffset = { x: 0, y: 0 };
+
+        // DOM Elements
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const toolbar = document.getElementById('toolbar');
+
+        // --- Inițializare ---
+        function init() {
+            setupCanvas();
+            setupToolbar();
+            setupAuth();
+            window.addEventListener('resize', setupCanvas);
+        }
+
+        function setupAuth() {
+            const connect = async () => {
+                try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (error) {
+                    console.error("Eroare autentificare:", error);
+                }
+            };
+            connect();
+
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    state.user = user;
+                    loadingOverlay.classList.add('hidden');
+                    toolbar.classList.remove('hidden');
+                    toolbar.classList.add('flex');
+                    listenToData();
+                } else {
+                    state.user = null;
+                }
+            });
+        }
+
+        // --- Bază de date & Sincronizare ---
+        function listenToData() {
+            if (!state.user) return;
+            const elementsRef = collection(db, 'artifacts', appId, 'public', 'data', 'board_elements');
+            
+            onSnapshot(elementsRef, (snapshot) => {
+                const els = [];
+                snapshot.forEach(doc => els.push({ id: doc.id, ...doc.data() }));
+                els.sort((a, b) => a.timestamp - b.timestamp);
+
+                let lastClearIndex = -1;
+                for (let i = els.length - 1; i >= 0; i--) {
+                    if (els[i].type === 'clear') {
+                        lastClearIndex = i;
+                        break;
+                    }
+                }
+                state.elements = els.slice(lastClearIndex + 1);
+                drawElements();
+            }, (error) => {
+                console.error("Eroare citire date:", error);
+            });
+        }
+
+        // --- Desenare pe Canvas ---
+        function setupCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            drawElements();
+        }
+
+        function drawElements() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Fundal
+            if (state.theme === 'whiteboard') {
+                canvas.classList.remove('bg-gray-800');
+                canvas.classList.add('bg-white');
+                ctx.fillStyle = '#ffffff';
+            } else {
+                canvas.classList.remove('bg-white');
+                canvas.classList.add('bg-gray-800');
+                ctx.fillStyle = '#1f2937';
+            }
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Elemente
+            state.elements.forEach(el => {
+                if (el.type === 'path') {
+                    ctx.beginPath();
+                    ctx.strokeStyle = el.tool === 'eraser' 
+                        ? (state.theme === 'whiteboard' ? '#ffffff' : '#1f2937') 
+                        : el.color;
+                    ctx.lineWidth = el.width;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+
+                    el.points.forEach((p, index) => {
+                        if (index === 0) ctx.moveTo(p.x, p.y);
+                        else ctx.lineTo(p.x, p.y);
+                    });
+                    ctx.stroke();
+                } else if (el.type === 'image') {
+                    if (imageCache[el.id]) {
+                        ctx.drawImage(imageCache[el.id], el.x, el.y, el.w, el.h);
+                    } else {
+                        const img = new Image();
+                        img.onload = () => {
+                            imageCache[el.id] = img;
+                            drawElements();
+                        };
+                        img.src = el.dataUrl;
+                    }
+                }
+            });
+        }
+
+        // --- Interacțiune Canvas ---
+        function getCoords(e) {
+            const rect = canvas.getBoundingClientRect();
+            if (e.touches && e.touches.length > 0) {
+                return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
+            }
+            return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        }
+
+        function handleStart(e) {
+            if(e.type === 'touchstart') {
+                // Nu dam preventDefault la touchstart pe mobile pe tot ecranul pentru ca strica click-urile in meniu uneori, 
+                // dar fiind pe canvas e safe.
+                if (e.target === canvas) e.preventDefault(); 
+            }
+
+            const coords = getCoords(e);
+
+            if (state.tool === 'pointer') {
+                for (let i = state.elements.length - 1; i >= 0; i--) {
+                    const el = state.elements[i];
+                    if (el.type === 'image') {
+                        if (coords.x >= el.x && coords.x <= el.x + el.w &&
+                            coords.y >= el.y && coords.y <= el.y + el.h) {
+                            isDragging = true;
+                            draggedElement = { ...el };
+                            dragOffset = { x: coords.x - el.x, y: coords.y - el.y };
+                            return;
+                        }
+                    }
+                }
+                return;
+            }
+
+            isDrawing = true;
+            currentPath = [coords];
+            lastPos = coords;
+        }
+
+        function handleMove(e) {
+            if(e.type === 'touchmove' && e.target === canvas) e.preventDefault();
+
+            if (state.tool === 'pointer' && isDragging && draggedElement) {
+                const coords = getCoords(e);
+                const newX = coords.x - dragOffset.x;
+                const newY = coords.y - dragOffset.y;
+                
+                draggedElement.x = newX;
+                draggedElement.y = newY;
+                
+                // Actualizare vizuală locală rapidă
+                const elIndex = state.elements.findIndex(el => el.id === draggedElement.id);
+                if(elIndex !== -1) {
+                    state.elements[elIndex].x = newX;
+                    state.elements[elIndex].y = newY;
+                    drawElements();
+                }
+                return;
+            }
+
+            if (!isDrawing || state.tool === 'pointer') return;
+
+            const coords = getCoords(e);
+            currentPath.push(coords);
+
+            ctx.beginPath();
+            ctx.moveTo(lastPos.x, lastPos.y);
+            ctx.lineTo(coords.x, coords.y);
+            ctx.strokeStyle = state.tool === 'eraser' 
+                ? (state.theme === 'whiteboard' ? '#ffffff' : '#1f2937') 
+                : state.color;
+            ctx.lineWidth = state.lineWidth;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+
+            lastPos = coords;
+        }
+
+        async function handleEnd() {
+            if (state.tool === 'pointer' && isDragging && draggedElement) {
+                isDragging = false;
+                try {
+                    const elRef = doc(db, 'artifacts', appId, 'public', 'data', 'board_elements', draggedElement.id);
+                    await updateDoc(elRef, {
+                        x: draggedElement.x,
+                        y: draggedElement.y
+                    });
+                } catch (err) {
+                    console.error("Eroare mutare:", err);
+                }
+                draggedElement = null;
+                return;
+            }
+
+            if (!isDrawing) return;
+            isDrawing = false;
+
+            if (currentPath.length > 0 && state.user) {
+                try {
+                    const elementsRef = collection(db, 'artifacts', appId, 'public', 'data', 'board_elements');
+                    await addDoc(elementsRef, {
+                        type: 'path',
+                        tool: state.tool,
+                        points: currentPath,
+                        color: state.color,
+                        width: state.lineWidth,
+                        timestamp: Date.now()
+                    });
+                } catch (error) {
+                    console.error("Eroare salvare:", error);
+                }
+            }
+            currentPath = [];
+        }
+
+        // Evenimente mouse
+        canvas.addEventListener('mousedown', handleStart);
+        canvas.addEventListener('mousemove', handleMove);
+        canvas.addEventListener('mouseup', handleEnd);
+        canvas.addEventListener('mouseout', handleEnd);
+
+        // Evenimente touch
+        canvas.addEventListener('touchstart', handleStart, {passive: false});
+        canvas.addEventListener('touchmove', handleMove, {passive: false});
+        canvas.addEventListener('touchend', handleEnd);
+        canvas.addEventListener('touchcancel', handleEnd);
+
+        // --- Logica UI / Toolbar ---
+        function setTool(newTool) {
+            state.tool = newTool;
+            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('tool-active'));
+            if(newTool === 'pointer') {
+                document.getElementById('btnPointer').classList.add('tool-active');
+                canvas.classList.add('pointer-mode');
+            } else if(newTool === 'pen') {
+                document.getElementById('btnPen').classList.add('tool-active');
+                canvas.classList.remove('pointer-mode');
+            } else if(newTool === 'eraser') {
+                document.getElementById('btnEraser').classList.add('tool-active');
+                canvas.classList.remove('pointer-mode');
+            }
+            updateColorUI();
+        }
+
+        function updateColorUI() {
+            document.querySelectorAll('.color-btn').forEach(b => {
+                if(b.dataset.color === state.color && state.tool === 'pen') {
+                    b.classList.add('color-active');
+                } else {
+                    b.classList.remove('color-active');
+                }
+            });
+        }
+
+        function setupToolbar() {
+            // Tema
+            const btnTheme = document.getElementById('btnTheme');
+            btnTheme.onclick = () => {
+                state.theme = state.theme === 'whiteboard' ? 'blackboard' : 'whiteboard';
+                btnTheme.innerHTML = state.theme === 'whiteboard' 
+                    ? '<span>☀️ Tablă Albă</span>' 
+                    : '<span>🌙 Tablă Neagră</span>';
+                if(state.theme === 'blackboard') {
+                    btnTheme.classList.replace('bg-gray-100', 'bg-gray-800');
+                    btnTheme.classList.replace('text-gray-800', 'text-white');
+                } else {
+                    btnTheme.classList.replace('bg-gray-800', 'bg-gray-100');
+                    btnTheme.classList.replace('text-white', 'text-gray-800');
+                }
+                drawElements();
+            };
+
+            // Unelte
+            document.getElementById('btnPointer').onclick = () => setTool('pointer');
+            document.getElementById('btnPen').onclick = () => setTool('pen');
+            document.getElementById('btnEraser').onclick = () => setTool('eraser');
+
+            // Culori
+            const colors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7', '#000000', '#ffffff'];
+            const colorContainer = document.getElementById('colorContainer');
+            colors.forEach(c => {
+                const btn = document.createElement('button');
+                btn.className = `color-btn w-7 h-7 rounded-full border-2 border-transparent transition-transform hover:scale-110 shrink-0`;
+                btn.style.backgroundColor = c;
+                if(c === '#ffffff') btn.style.border = '1px solid #ccc';
+                btn.dataset.color = c;
+                btn.onclick = () => {
+                    state.color = c;
+                    setTool('pen');
+                };
+                colorContainer.appendChild(btn);
+            });
+            updateColorUI();
+
+            // Grosime
+            const lineWidthInput = document.getElementById('lineWidth');
+            lineWidthInput.oninput = (e) => { state.lineWidth = Number(e.target.value); };
+
+            // Imagine
+            const imgInput = document.getElementById('imageInput');
+            imgInput.onclick = (e) => { e.target.value = null; };
+            imgInput.onchange = (e) => {
+                const file = e.target.files[0];
+                if (!file || !state.user) return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = async () => {
+                        const max_size = 600;
+                        let w = img.width, h = img.height;
+                        if (w > h) { if (w > max_size) { h *= max_size / w; w = max_size; } } 
+                        else { if (h > max_size) { w *= max_size / h; h = max_size; } }
+
+                        const tempCanvas = document.createElement('canvas');
+                        tempCanvas.width = w; tempCanvas.height = h;
+                        tempCanvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                        const dataUrl = tempCanvas.toDataURL('image/jpeg', 0.7);
+
+                        const x = (window.innerWidth / 2) - (w / 2);
+                        const y = (window.innerHeight / 2) - (h / 2);
+
+                        try {
+                            const elementsRef = collection(db, 'artifacts', appId, 'public', 'data', 'board_elements');
+                            await addDoc(elementsRef, {
+                                type: 'image', dataUrl: dataUrl, x: x, y: y, w: w, h: h, timestamp: Date.now()
+                            });
+                        } catch (err) { console.error(err); }
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            };
+
+            // Ștergere Tot
+            let confirmClearTimer;
+            let isConfirmingClear = false;
+            const btnClear = document.getElementById('btnClear');
+            const btnClearText = document.getElementById('btnClearText');
+
+            btnClear.onclick = async () => {
+                if (isConfirmingClear) {
+                    if (!state.user) return;
+                    state.elements = [];
+                    drawElements();
+                    try {
+                        const elementsRef = collection(db, 'artifacts', appId, 'public', 'data', 'board_elements');
+                        await addDoc(elementsRef, { type: 'clear', timestamp: Date.now() });
+                    } catch (err) { console.error(err); }
+                    
+                    isConfirmingClear = false;
+                    btnClearText.innerText = "Șterge Tot";
+                    btnClear.classList.replace('bg-red-600', 'bg-red-50');
+                    btnClear.classList.replace('text-white', 'text-red-600');
+                    clearTimeout(confirmClearTimer);
+                } else {
+                    isConfirmingClear = true;
+                    btnClearText.innerText = "Sigur?";
+                    btnClear.classList.replace('bg-red-50', 'bg-red-600');
+                    btnClear.classList.replace('text-red-600', 'text-white');
+                    
+                    confirmClearTimer = setTimeout(() => {
+                        isConfirmingClear = false;
+                        btnClearText.innerText = "Șterge Tot";
+                        btnClear.classList.replace('bg-red-600', 'bg-red-50');
+                        btnClear.classList.replace('text-white', 'text-red-600');
+                    }, 3000);
+                }
+            };
+        }
+
+        // Pornire
+        init();
+    </script>
+</body>
+</html>

@@ -113,7 +113,7 @@
             user: null,
             elements: [],
             theme: 'whiteboard',
-            tool: 'pen',
+            tool: 'pen'
             color: '#ef4444',
             lineWidth: 3
         };
@@ -437,9 +437,50 @@
                 colorContainer.appendChild(btn);
             });
             updateColorUI();
+// --- COD NOU PENTRU IMAGINI ---
+            const imgInput = document.getElementById('imageInput');
+            if (imgInput) {
+                imgInput.onclick = (e) => { e.target.value = null; };
+                imgInput.onchange = (e) => {
+                    const file = e.target.files[0];
+                    if (!file || !state.user) return;
 
-            const lineWidthInput = document.getElementById('lineWidth');
-            lineWidthInput.oninput = (e) => { state.lineWidth = Number(e.target.value); };
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const img = new Image();
+                        img.onload = async () => {
+                            // Max 400px ca să nu dea eroare de mărime la Firebase
+                            const max_size = 400; 
+                            let w = img.width, h = img.height;
+                            if (w > h) { if (w > max_size) { h *= max_size / w; w = max_size; } } 
+                            else { if (h > max_size) { w *= max_size / h; h = max_size; } }
+
+                            const tempCanvas = document.createElement('canvas');
+                            tempCanvas.width = w; tempCanvas.height = h;
+                            tempCanvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                            
+                            // Compresie puternică 50%
+                            const dataUrl = tempCanvas.toDataURL('image/jpeg', 0.5);
+
+                            const x = (window.innerWidth / 2) - (w / 2);
+                            const y = (window.innerHeight / 2) - (h / 2);
+
+                            try {
+                                const elementsRef = collection(db, 'artifacts', appId, 'public', 'data', 'board_elements');
+                                await addDoc(elementsRef, {
+                                    type: 'image', dataUrl: dataUrl, x: x, y: y, w: w, h: h, timestamp: Date.now()
+                                });
+                            } catch (err) { 
+                                console.error(err);
+                                alert("Imaginea e prea mare! Încearcă un screenshot sau o poză mai mică.");
+                            }
+                        };
+                        img.src = event.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                };
+            }
+            // --- FINAL COD IMAGINI ---
 
             const imgInput = document.getElementById('imageInput');
             imgInput.onclick = (e) => { e.target.value = null; };

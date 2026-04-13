@@ -20,7 +20,7 @@
     <!-- Ecran de încărcare -->
     <div id="loadingOverlay" class="absolute inset-0 z-50 flex items-center justify-center bg-gray-100 text-gray-800 backdrop-blur-sm transition-opacity duration-300">
         <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-        <span class="ml-4 font-semibold text-lg">Se conectează la sesiune...</span>
+        <span class="ml-4 font-semibold text-lg" id="loadingText">Se conectează la sesiune...</span>
     </div>
 
     <!-- Canvas pentru desen -->
@@ -94,19 +94,31 @@
         import { getFirestore, collection, onSnapshot, addDoc, updateDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- Configurare Firebase ---
-        // (Pentru rularea în acest mediu; când îl pui pe GitHub pui aici datele tale)
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        let firebaseConfig = {};
+        let appId = 'default-app-id';
+
+        // Încercăm să luăm config-ul din mediu
+        try {
+            if (typeof __firebase_config !== 'undefined') {
+                firebaseConfig = JSON.parse(__firebase_config);
+            }
+            if (typeof __app_id !== 'undefined') {
+                appId = __app_id;
+            }
+        } catch (e) {
+            console.warn("Nu am putut încărca configurarea globală Firebase. Se va folosi modul offline dacă nu este configurat.");
+        }
+
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         // --- Stare Aplicație ---
         let state = {
             user: null,
             elements: [],
-            theme: 'whiteboard', // 'whiteboard' sau 'blackboard'
-            tool: 'pen',         // 'pen', 'eraser', 'pointer'
+            theme: 'whiteboard',
+            tool: 'pen',
             color: '#ef4444',
             lineWidth: 3
         };
@@ -124,6 +136,7 @@
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
         const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingText = document.getElementById('loadingText');
         const toolbar = document.getElementById('toolbar');
 
         // --- Inițializare ---
@@ -137,16 +150,29 @@
         function setupAuth() {
             const connect = async () => {
                 try {
+                    loadingText.innerText = "Conectare la sesiune...";
                     if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                         await signInWithCustomToken(auth, __initial_auth_token);
                     } else {
                         await signInAnonymously(auth);
                     }
                 } catch (error) {
-                    console.error("Eroare autentificare:", error);
+                    console.error("Eroare la autentificarea principală, încerc fallback:", error);
+                    try {
+                         // Fallback în caz că token-ul personalizat e invalid
+                         await signInAnonymously(auth);
+                    } catch (fallbackError) {
+                         console.error("Eroare fatală autentificare:", fallbackError);
+                         loadingText.innerText = "Eroare conexiune. Mod Offline.";
+                         // Ascundem overlay-ul chiar și în caz de eroare pentru a putea desena offline
+                         setTimeout(() => {
+                             loadingOverlay.classList.add('hidden');
+                             toolbar.classList.remove('hidden');
+                             toolbar.classList.add('flex');
+                         }, 1500);
+                    }
                 }
             };
-            connect();
 
             onAuthStateChanged(auth, (user) => {
                 if (user) {
@@ -159,30 +185,36 @@
                     state.user = null;
                 }
             });
+
+            connect();
         }
 
         // --- Bază de date & Sincronizare ---
         function listenToData() {
             if (!state.user) return;
-            const elementsRef = collection(db, 'artifacts', appId, 'public', 'data', 'board_elements');
-            
-            onSnapshot(elementsRef, (snapshot) => {
-                const els = [];
-                snapshot.forEach(doc => els.push({ id: doc.id, ...doc.data() }));
-                els.sort((a, b) => a.timestamp - b.timestamp);
+            try {
+                const elementsRef = collection(db, 'artifacts', appId, 'public', 'data', 'board_elements');
+                
+                onSnapshot(elementsRef, (snapshot) => {
+                    const els = [];
+                    snapshot.forEach(doc => els.push({ id: doc.id, ...doc.data() }));
+                    els.sort((a, b) => a.timestamp - b.timestamp);
 
-                let lastClearIndex = -1;
-                for (let i = els.length - 1; i >= 0; i--) {
-                    if (els[i].type === 'clear') {
-                        lastClearIndex = i;
-                        break;
+                    let lastClearIndex = -1;
+                    for (let i = els.length - 1; i >= 0; i--) {
+                        if (els[i].type === 'clear') {
+                            lastClearIndex = i;
+                            break;
+                        }
                     }
-                }
-                state.elements = els.slice(lastClearIndex + 1);
-                drawElements();
-            }, (error) => {
-                console.error("Eroare citire date:", error);
-            });
+                    state.elements = els.slice(lastClearIndex + 1);
+                    drawElements();
+                }, (error) => {
+                    console.error("Eroare citire date:", error);
+                });
+            } catch (err) {
+                 console.error("Eroare setare ascultător Firebase:", err);
+            }
         }
 
         // --- Desenare pe Canvas ---
@@ -195,7 +227,6 @@
         function drawElements() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Fundal
             if (state.theme === 'whiteboard') {
                 canvas.classList.remove('bg-gray-800');
                 canvas.classList.add('bg-white');
@@ -207,7 +238,6 @@
             }
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Elemente
             state.elements.forEach(el => {
                 if (el.type === 'path') {
                     ctx.beginPath();
@@ -248,12 +278,8 @@
         }
 
         function handleStart(e) {
-            if(e.type === 'touchstart') {
-                // Nu dam preventDefault la touchstart pe mobile pe tot ecranul pentru ca strica click-urile in meniu uneori, 
-                // dar fiind pe canvas e safe.
-                if (e.target === canvas) e.preventDefault(); 
-            }
-
+            if(e.type === 'touchstart' && e.target === canvas) e.preventDefault(); 
+            
             const coords = getCoords(e);
 
             if (state.tool === 'pointer') {
@@ -288,7 +314,6 @@
                 draggedElement.x = newX;
                 draggedElement.y = newY;
                 
-                // Actualizare vizuală locală rapidă
                 const elIndex = state.elements.findIndex(el => el.id === draggedElement.id);
                 if(elIndex !== -1) {
                     state.elements[elIndex].x = newX;
@@ -320,15 +345,11 @@
         async function handleEnd() {
             if (state.tool === 'pointer' && isDragging && draggedElement) {
                 isDragging = false;
+                if (!state.user) return;
                 try {
                     const elRef = doc(db, 'artifacts', appId, 'public', 'data', 'board_elements', draggedElement.id);
-                    await updateDoc(elRef, {
-                        x: draggedElement.x,
-                        y: draggedElement.y
-                    });
-                } catch (err) {
-                    console.error("Eroare mutare:", err);
-                }
+                    await updateDoc(elRef, { x: draggedElement.x, y: draggedElement.y });
+                } catch (err) { console.error("Eroare mutare:", err); }
                 draggedElement = null;
                 return;
             }
@@ -340,27 +361,19 @@
                 try {
                     const elementsRef = collection(db, 'artifacts', appId, 'public', 'data', 'board_elements');
                     await addDoc(elementsRef, {
-                        type: 'path',
-                        tool: state.tool,
-                        points: currentPath,
-                        color: state.color,
-                        width: state.lineWidth,
-                        timestamp: Date.now()
+                        type: 'path', tool: state.tool, points: currentPath, color: state.color,
+                        width: state.lineWidth, timestamp: Date.now()
                     });
-                } catch (error) {
-                    console.error("Eroare salvare:", error);
-                }
+                } catch (error) { console.error("Eroare salvare:", error); }
             }
             currentPath = [];
         }
 
-        // Evenimente mouse
         canvas.addEventListener('mousedown', handleStart);
         canvas.addEventListener('mousemove', handleMove);
         canvas.addEventListener('mouseup', handleEnd);
         canvas.addEventListener('mouseout', handleEnd);
 
-        // Evenimente touch
         canvas.addEventListener('touchstart', handleStart, {passive: false});
         canvas.addEventListener('touchmove', handleMove, {passive: false});
         canvas.addEventListener('touchend', handleEnd);
@@ -394,7 +407,6 @@
         }
 
         function setupToolbar() {
-            // Tema
             const btnTheme = document.getElementById('btnTheme');
             btnTheme.onclick = () => {
                 state.theme = state.theme === 'whiteboard' ? 'blackboard' : 'whiteboard';
@@ -411,12 +423,10 @@
                 drawElements();
             };
 
-            // Unelte
             document.getElementById('btnPointer').onclick = () => setTool('pointer');
             document.getElementById('btnPen').onclick = () => setTool('pen');
             document.getElementById('btnEraser').onclick = () => setTool('eraser');
 
-            // Culori
             const colors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7', '#000000', '#ffffff'];
             const colorContainer = document.getElementById('colorContainer');
             colors.forEach(c => {
@@ -433,11 +443,9 @@
             });
             updateColorUI();
 
-            // Grosime
             const lineWidthInput = document.getElementById('lineWidth');
             lineWidthInput.oninput = (e) => { state.lineWidth = Number(e.target.value); };
 
-            // Imagine
             const imgInput = document.getElementById('imageInput');
             imgInput.onclick = (e) => { e.target.value = null; };
             imgInput.onchange = (e) => {
@@ -473,7 +481,6 @@
                 reader.readAsDataURL(file);
             };
 
-            // Ștergere Tot
             let confirmClearTimer;
             let isConfirmingClear = false;
             const btnClear = document.getElementById('btnClear');

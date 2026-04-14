@@ -3,43 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Whiteboard Real-Time</title>
+    <title>Whiteboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body, html { margin: 0; padding: 0; overflow: hidden; touch-action: none; background: #f3f4f6; }
-        canvas { cursor: crosshair; touch-action: none; }
+        body { margin: 0; overflow: hidden; background: #f3f4f6; touch-action: none; }
+        canvas { cursor: crosshair; display: block; }
         .tool-active { background-color: #dbeafe !important; color: #2563eb !important; }
     </style>
 </head>
 <body>
+    <canvas id="canvas" class="absolute inset-0 bg-white"></canvas>
 
-    <div id="loading" class="fixed inset-0 z-50 flex items-center justify-center bg-white">
-        <div class="flex flex-col items-center">
-            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
-            <p class="text-gray-600 font-medium">Se conectează la tablă...</p>
-        </div>
-    </div>
-
-    <canvas id="canvas" class="absolute inset-0 bg-white shadow-inner"></canvas>
-
-    <div id="ui" class="hidden fixed top-4 left-1/2 -translate-x-1/2 flex items-center bg-white/90 backdrop-blur shadow-xl rounded-2xl p-2 border gap-4 z-20">
-        <button id="btnPen" class="tool-active p-2 rounded-lg hover:bg-gray-100">✏️</button>
-        <button id="btnEraser" class="p-2 rounded-lg hover:bg-gray-100">🧽</button>
-        <button id="btnPointer" class="p-2 rounded-lg hover:bg-gray-100">🏹</button>
-        <div class="h-6 w-px bg-gray-300"></div>
+    <div id="ui" class="fixed top-4 left-1/2 -translate-x-1/2 flex items-center bg-white/90 backdrop-blur shadow-xl rounded-2xl p-2 border gap-4 z-20">
+        <button id="btnPen" class="tool-active p-2 rounded-lg hover:bg-gray-100" title="Creion">✏️</button>
+        <button id="btnEraser" class="p-2 rounded-lg hover:bg-gray-100" title="Radieră">🧽</button>
+        <button id="btnPointer" class="p-2 rounded-lg hover:bg-gray-100" title="Mută">🏹</button>
         <input type="color" id="colorPicker" value="#ef4444" class="w-8 h-8 cursor-pointer rounded">
         <input type="range" id="sizePicker" min="1" max="20" value="3" class="w-20">
-        <div class="h-6 w-px bg-gray-300"></div>
         <label class="cursor-pointer p-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-bold">
-            🖼️ Foto
-            <input type="file" id="imgInp" accept="image/*" class="hidden">
+            🖼️ Foto <input type="file" id="imgInp" accept="image/*" class="hidden">
         </label>
         <button id="btnClear" class="p-2 bg-red-50 text-red-600 rounded-lg text-sm font-bold">🗑️ Șterge</button>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
         import { getFirestore, collection, onSnapshot, addDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
         const firebaseConfig = {
@@ -51,33 +40,32 @@
             appId: "1:877486785505:web:509c287059349ad10ec8a0"
         };
 
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const colRef = collection(db, "desene");
-
-        let user = null, elements = [], tool = 'pen', isDrawing = false;
+        let app, auth, db, colRef;
+        let elements = [], tool = 'pen', isDrawing = false;
         let points = [], lastPos = {x:0, y:0}, draggedImg = null, offset = {x:0, y:0};
         
         const cvs = document.getElementById('canvas'), ctx = cvs.getContext('2d');
-        const load = document.getElementById('loading'), ui = document.getElementById('ui');
-
         function resize() { cvs.width = window.innerWidth; cvs.height = window.innerHeight; draw(); }
         window.onresize = resize; resize();
 
-        // Safety fallback: dacă nu se conectează în 5 secunde, arată tabla oricum
-        setTimeout(() => { load.style.display = 'none'; ui.classList.remove('hidden'); }, 5000);
-
-        signInAnonymously(auth).catch(() => console.log("Offline"));
-        onAuthStateChanged(auth, u => {
-            user = u; load.style.display = 'none'; ui.classList.remove('hidden');
-            onSnapshot(colRef, snap => {
-                const all = snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b)=>a.t-b.t);
-                const lastClear = all.map(e=>e.type).lastIndexOf('clear');
-                elements = all.slice(lastClear + 1);
-                draw();
-            });
-        });
+        // Pornește Firebase ascuns, pe fundal
+        async function startFirebase() {
+            try {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                colRef = collection(db, "desene");
+                await signInAnonymously(auth);
+                
+                onSnapshot(colRef, snap => {
+                    const all = snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b)=>a.t-b.t);
+                    const lastClear = all.map(e=>e.type).lastIndexOf('clear');
+                    elements = all.slice(lastClear + 1);
+                    draw();
+                });
+            } catch(e) { console.error("Eroare Firebase", e); }
+        }
+        startFirebase();
 
         function draw() {
             ctx.fillStyle = "white"; ctx.fillRect(0,0,cvs.width,cvs.height);
@@ -113,10 +101,7 @@
 
         cvs.onmousemove = cvs.ontouchmove = e => {
             const p = getXY(e);
-            if(draggedImg) {
-                draggedImg.x = p.x - offset.x; draggedImg.y = p.y - offset.y;
-                draw(); return;
-            }
+            if(draggedImg) { draggedImg.x = p.x - offset.x; draggedImg.y = p.y - offset.y; draw(); return; }
             if(!isDrawing) return;
             points.push(p);
             ctx.beginPath(); ctx.moveTo(lastPos.x, lastPos.y); ctx.lineTo(p.x, p.y);
@@ -127,11 +112,11 @@
 
         cvs.onmouseup = cvs.onmouseleave = cvs.ontouchend = async () => {
             if(draggedImg) {
-                await updateDoc(doc(db, "desene", draggedImg.id), { x: draggedImg.x, y: draggedImg.y });
+                if(db) await updateDoc(doc(db, "desene", draggedImg.id), { x: draggedImg.x, y: draggedImg.y });
                 draggedImg = null; return;
             }
             if(!isDrawing) return; isDrawing = false;
-            if(points.length > 1) {
+            if(points.length > 1 && db) {
                 addDoc(colRef, { t: Date.now(), type: 'path', p: points, c: document.getElementById('colorPicker').value, w: document.getElementById('sizePicker').value, tool });
             }
         };
@@ -139,10 +124,12 @@
         document.getElementById('btnPen').onclick = () => { tool = 'pen'; updateUI(); };
         document.getElementById('btnEraser').onclick = () => { tool = 'eraser'; updateUI(); };
         document.getElementById('btnPointer').onclick = () => { tool = 'pointer'; updateUI(); };
-        document.getElementById('btnClear').onclick = () => { if(confirm("Ștergi tot?")) addDoc(colRef, {t: Date.now(), type:'clear'}); };
+        document.getElementById('btnClear').onclick = () => { 
+            if(confirm("Ștergi tot?") && db) addDoc(colRef, {t: Date.now(), type:'clear'});
+        };
 
         function updateUI() {
-            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('tool-active'));
+            document.querySelectorAll('button').forEach(b => b.classList.remove('tool-active'));
             if(tool === 'pen') document.getElementById('btnPen').classList.add('tool-active');
             if(tool === 'eraser') document.getElementById('btnEraser').classList.add('tool-active');
             if(tool === 'pointer') document.getElementById('btnPointer').classList.add('tool-active');
@@ -158,7 +145,7 @@
                     if(w > h) { if(w > m) { h *= m/w; w = m; } } else { if(h > m) { w *= m/h; h = m; } }
                     const c = document.createElement('canvas'); c.width = w; c.height = h;
                     c.getContext('2d').drawImage(i, 0, 0, w, h);
-                    addDoc(colRef, { t: Date.now(), type: 'img', src: c.toDataURL('image/jpeg', 0.5), x: 50, y: 50, w, h });
+                    if(db) addDoc(colRef, { t: Date.now(), type: 'img', src: c.toDataURL('image/jpeg', 0.5), x: 50, y: 50, w, h });
                 };
                 i.src = v.target.result;
             };

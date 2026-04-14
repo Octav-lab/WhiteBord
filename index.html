@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Whiteboard Detectiv & Live</title>
+    <title>Whiteboard Detectiv & Colaborativ</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { margin: 0; overflow: hidden; touch-action: none; transition: background 0.3s; }
@@ -11,18 +11,23 @@
         .dark-ui { background-color: #1a1a1a !important; border-color: #333 !important; color: white !important; }
         .active-tool { background-color: #3b82f6 !important; color: white !important; transform: scale(1.1); }
         .bottom-nav { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 50; }
+        
+        /* Animație fină pentru mișcarea cursorului altor jucători */
+        .cursor-indicator { transition: transform 0.15s linear, opacity 0.2s; pointer-events: none; }
     </style>
 </head>
 <body class="bg-gray-100">
 
-    <canvas id="canvas" class="absolute inset-0 bg-white"></canvas>
+    <div id="cursors" class="absolute inset-0 pointer-events-none z-30 overflow-hidden"></div>
 
-    <div id="imgContextMenu" class="hidden fixed top-20 left-1/2 -translate-x-1/2 flex gap-2 p-2 bg-white/90 shadow-xl rounded-2xl border z-40 transition-all">
-        <button id="btnImgScaleUp" class="p-2 bg-gray-100 hover:bg-gray-200 rounded-xl text-lg font-bold" title="Mărește">➕</button>
-        <button id="btnImgScaleDown" class="p-2 bg-gray-100 hover:bg-gray-200 rounded-xl text-lg font-bold" title="Micșorează">➖</button>
-        <button id="btnImgRotate" class="p-2 bg-gray-100 hover:bg-gray-200 rounded-xl text-lg font-bold" title="Rotește 45°">⟳</button>
+    <canvas id="canvas" class="absolute inset-0 bg-transparent"></canvas>
+
+    <div id="imgContextMenu" class="hidden fixed top-20 left-1/2 -translate-x-1/2 flex gap-2 p-2 bg-white/90 shadow-xl rounded-2xl border z-40">
+        <button id="btnImgScaleUp" class="p-2 bg-gray-100 hover:bg-gray-200 rounded-xl text-lg font-bold">➕</button>
+        <button id="btnImgScaleDown" class="p-2 bg-gray-100 hover:bg-gray-200 rounded-xl text-lg font-bold">➖</button>
+        <button id="btnImgRotate" class="p-2 bg-gray-100 hover:bg-gray-200 rounded-xl text-lg font-bold">⟳</button>
         <div class="w-px bg-gray-300 mx-1"></div>
-        <button id="btnDeleteImg" class="p-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-xl text-lg font-bold" title="Șterge">🗑️</button>
+        <button id="btnDeleteImg" class="p-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-xl text-lg font-bold">🗑️</button>
     </div>
 
     <div id="ui" class="bottom-nav flex flex-col items-center gap-3 w-[95%] max-w-[500px]">
@@ -32,20 +37,269 @@
             <label class="p-3 bg-blue-500 shadow-lg rounded-2xl text-white text-sm font-bold flex items-center gap-2 cursor-pointer">
                 🖼️ Imagine <input type="file" id="imgInp" accept="image/*" class="hidden">
             </label>
-            <button id="btnClear" class="p-3 bg-white/90 shadow-lg rounded-2xl border text-xl" title="Șterge tot tabla">🧹</button>
+            <button id="btnClear" class="p-3 bg-white/90 shadow-lg rounded-2xl border text-xl">🧹</button>
         </div>
 
         <div id="mainToolbar" class="flex items-center justify-between bg-white/90 backdrop-blur-lg shadow-2xl rounded-3xl p-2 border w-full h-16 px-4">
-            <button id="btnPen" class="active-tool p-3 rounded-2xl text-2xl transition-all" title="Creion">✏️</button>
-            <button id="btnEraser" class="p-3 rounded-2xl text-2xl transition-all" title="Radieră">🧽</button>
-            <button id="btnPointer" class="p-3 rounded-2xl text-2xl transition-all" title="Selectează/Mută">🏹</button>
+            <button id="btnPen" class="active-tool p-3 rounded-2xl text-2xl transition-all">✏️</button>
+            <button id="btnEraser" class="p-3 rounded-2xl text-2xl transition-all">🧽</button>
+            <button id="btnPointer" class="p-3 rounded-2xl text-2xl transition-all">🏹</button>
             
             <div class="h-8 w-px bg-gray-300 mx-1"></div>
             
-            <button id="btnPin" class="p-3 rounded-2xl text-2xl transition-all" title="Pune Pin Detectiv">📍</button>
+            <button id="btnPin" class="p-3 rounded-2xl text-2xl transition-all">📍</button>
 
             <div class="h-8 w-px bg-gray-300 mx-1"></div>
             
             <div class="flex items-center gap-1">
                 <input type="color" id="colorPicker" value="#ef4444" class="w-8 h-8 border-0 bg-transparent cursor-pointer">
-                <input type="range" id="sizePicker
+                <input type="range" id="sizePicker" min="1" max="25" value="4" class="w-16 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyALeqIvCZ4YUBJ64Yl-GlaL9qt1qjQSjpo",
+            authDomain: "whiteboard-app-e43d5.firebaseapp.com",
+            projectId: "whiteboard-app-e43d5",
+            storageBucket: "whiteboard-app-e43d5.firebasestorage.app",
+            messagingSenderId: "877486785505",
+            appId: "1:877486785505:web:509c287059349ad10ec8a0"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        
+        const colRef = collection(db, "desene");
+        const cursorsRef = collection(db, "board_cursors");
+
+        let myUid = null;
+        let elements = [], tool = 'pen', isDrawing = false, isDark = false;
+        let points = [], lastPos = {x:0, y:0}, selectedItem = null, offset = {x:0, y:0};
+        let pinCounter = 1, lastCursorSync = 0;
+        
+        const cvs = document.getElementById('canvas'), ctx = cvs.getContext('2d');
+        const mainToolbar = document.getElementById('mainToolbar');
+        const imgContextMenu = document.getElementById('imgContextMenu');
+        const cursorsContainer = document.getElementById('cursors');
+
+        function resize() { cvs.width = window.innerWidth; cvs.height = window.innerHeight; draw(); }
+        window.onresize = resize; resize();
+
+        signInAnonymously(auth);
+        onAuthStateChanged(auth, user => { if(user) myUid = user.uid; });
+
+        // Ascultăm modificările desenelor
+        onSnapshot(colRef, snap => {
+            const all = snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b)=>a.t-b.t);
+            const lastClear = all.map(e=>e.type).lastIndexOf('clear');
+            elements = all.slice(lastClear + 1);
+            pinCounter = elements.filter(e => e.type === 'pin').length + 1;
+            draw();
+        });
+
+        // Ascultăm pozițiile celorlalți utilizatori (Live Cursors)
+        onSnapshot(cursorsRef, snap => {
+            snap.docs.forEach(d => {
+                if(d.id === myUid) return; // Ne ignorăm propriul cursor
+                const data = d.data();
+                let el = document.getElementById('cursor-' + d.id);
+                
+                // Dacă nu mai desenează sau a trecut prea mult timp, ascundem cursorul
+                if(!data.active || Date.now() - data.t > 3000) {
+                    if(el) el.style.opacity = '0';
+                    return;
+                }
+
+                if(!el) { // Creăm cursorul dacă nu există
+                    el = document.createElement('div');
+                    el.id = 'cursor-' + d.id;
+                    el.className = 'absolute cursor-indicator flex items-start drop-shadow-md';
+                    el.innerHTML = `
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="white" stroke-width="2" class="transform -translate-x-1 -translate-y-1">
+                            <path d="M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86a.5.5 0 01.35-.15h6.42c.45 0 .67-.54.35-.85L6.35 2.85a.5.5 0 00-.85.36z"/>
+                        </svg>`;
+                    cursorsContainer.appendChild(el);
+                }
+                
+                el.style.opacity = '1';
+                el.style.transform = `translate(${data.x}px, ${data.y}px)`;
+                el.style.color = data.c || '#3b82f6'; // Culoarea pe care a ales-o el
+            });
+        });
+
+        // Transmitem poziția noastră către ceilalți
+        function broadcastCursor(x, y) {
+            if(!myUid) return;
+            const now = Date.now();
+            if(now - lastCursorSync > 150) { // Limităm la o scriere la 150ms pentru a proteja baza de date
+                setDoc(doc(db, "board_cursors", myUid), { 
+                    x: x, y: y, 
+                    c: document.getElementById('colorPicker').value, 
+                    t: now, active: true 
+                });
+                lastCursorSync = now;
+            }
+        }
+        function hideMyCursor() {
+            if(myUid) setDoc(doc(db, "board_cursors", myUid), { active: false, t: Date.now() }, {merge: true});
+        }
+
+        function draw() {
+            document.body.style.backgroundColor = isDark ? "#121212" : "#f3f4f6";
+            ctx.clearRect(0,0,cvs.width,cvs.height);
+            
+            const pins = elements.filter(e => e.type === 'pin').sort((a,b)=>a.t-b.t);
+            if(pins.length > 1) {
+                ctx.beginPath(); ctx.lineWidth = 2; ctx.strokeStyle = "#ff0000"; 
+                ctx.setLineDash([10, 5]); ctx.moveTo(pins[0].x, pins[0].y);
+                for(let i = 1; i < pins.length; i++) ctx.lineTo(pins[i].x, pins[i].y);
+                ctx.stroke(); ctx.setLineDash([]); 
+            }
+
+            elements.forEach(el => {
+                if(el.type === 'path') {
+                    ctx.beginPath(); ctx.lineWidth = el.w; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                    ctx.strokeStyle = el.tool === 'eraser' ? (isDark ? "#121212" : "#f3f4f6") : el.c;
+                    el.p.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+                    ctx.stroke();
+                } else if(el.type === 'img') {
+                    ctx.save(); ctx.translate(el.x + el.w/2, el.y + el.h/2); ctx.rotate((el.rot || 0) * Math.PI / 180);
+                    const img = new Image(); img.src = el.src;
+                    if(img.complete) {
+                        ctx.drawImage(img, -el.w/2, -el.h/2, el.w, el.h);
+                        if(selectedItem && selectedItem.id === el.id) {
+                            ctx.strokeStyle = "#3b82f6"; ctx.lineWidth = 3; ctx.strokeRect(-el.w/2 - 2, -el.h/2 - 2, el.w + 4, el.h + 4);
+                        }
+                    } else img.onload = draw;
+                    ctx.restore();
+                }
+            });
+
+            pins.forEach(pin => {
+                ctx.beginPath(); ctx.arc(pin.x, pin.y, 12, 0, 2 * Math.PI);
+                ctx.fillStyle = "#ef4444"; ctx.fill();
+                ctx.lineWidth = 2; ctx.strokeStyle = isDark ? "#ffffff" : "#1f2937"; ctx.stroke();
+                ctx.fillStyle = "white"; ctx.font = "bold 12px Arial";
+                ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(pin.num, pin.x, pin.y + 1);
+                if(selectedItem && selectedItem.id === pin.id) {
+                    ctx.beginPath(); ctx.arc(pin.x, pin.y, 16, 0, 2 * Math.PI); ctx.strokeStyle = "#3b82f6"; ctx.stroke();
+                }
+            });
+        }
+
+        const getXY = e => {
+            const r = cvs.getBoundingClientRect();
+            const t = e.touches ? e.touches[0] : e;
+            return { x: t.clientX - r.left, y: t.clientY - r.top };
+        };
+
+        cvs.onmousedown = cvs.ontouchstart = e => {
+            const p = getXY(e);
+            
+            if(tool === 'pin') { addDoc(colRef, { t: Date.now(), type: 'pin', x: p.x, y: p.y, num: pinCounter }); return; }
+
+            if(tool === 'pointer') {
+                const pins = elements.filter(el => el.type === 'pin');
+                for(let i = pins.length - 1; i >= 0; i--) {
+                    if(Math.sqrt(Math.pow(p.x - pins[i].x, 2) + Math.pow(p.y - pins[i].y, 2)) <= 16) {
+                        selectedItem = pins[i]; offset = { x: p.x - pins[i].x, y: p.y - pins[i].y };
+                        imgContextMenu.classList.add('hidden');
+                        broadcastCursor(p.x, p.y); // Arată celorlalți că tragi de pin
+                        return;
+                    }
+                }
+                const imgs = elements.filter(el => el.type === 'img');
+                const foundImg = [...imgs].reverse().find(el => p.x > el.x && p.x < el.x+el.w && p.y > el.y && p.y < el.y+el.h);
+                if(foundImg) { selectedItem = foundImg; offset = { x: p.x - foundImg.x, y: p.y - foundImg.y }; imgContextMenu.classList.remove('hidden'); broadcastCursor(p.x, p.y); } 
+                else { selectedItem = null; imgContextMenu.classList.add('hidden'); }
+                draw(); return;
+            }
+            
+            isDrawing = true; points = [p]; lastPos = p;
+            broadcastCursor(p.x, p.y);
+        };
+
+        cvs.onmousemove = cvs.ontouchmove = e => {
+            if(e.cancelable) e.preventDefault();
+            const p = getXY(e);
+            if(selectedItem && tool === 'pointer') {
+                selectedItem.x = p.x - offset.x; selectedItem.y = p.y - offset.y;
+                draw(); broadcastCursor(p.x, p.y); return;
+            }
+            if(!isDrawing) return;
+            points.push(p);
+            ctx.beginPath(); ctx.moveTo(lastPos.x, lastPos.y); ctx.lineTo(p.x, p.y);
+            ctx.strokeStyle = tool === 'eraser' ? (isDark ? "#121212" : "#f3f4f6") : document.getElementById('colorPicker').value;
+            ctx.lineWidth = document.getElementById('sizePicker').value;
+            ctx.lineCap = 'round'; ctx.stroke(); lastPos = p;
+            broadcastCursor(p.x, p.y);
+        };
+
+        cvs.onmouseup = cvs.onmouseleave = cvs.ontouchend = async () => {
+            hideMyCursor(); // Ascunde cursorul meu de pe ecranele celorlalți când ridic degetul
+            if(selectedItem && tool === 'pointer') {
+                await updateDoc(doc(db, "desene", selectedItem.id), { x: selectedItem.x, y: selectedItem.y });
+                return;
+            }
+            if(!isDrawing) return; isDrawing = false;
+            if(points.length > 1) {
+                addDoc(colRef, { t: Date.now(), type: 'path', p: points, c: document.getElementById('colorPicker').value, w: document.getElementById('sizePicker').value, tool });
+            }
+        };
+
+        // --- Logica Butoanelor ---
+        function updateUI() {
+            document.querySelectorAll('#mainToolbar button').forEach(b => b.classList.remove('active-tool'));
+            if(tool === 'pen') document.getElementById('btnPen').classList.add('active-tool');
+            if(tool === 'eraser') document.getElementById('btnEraser').classList.add('active-tool');
+            if(tool === 'pointer') document.getElementById('btnPointer').classList.add('active-tool');
+            if(tool === 'pin') document.getElementById('btnPin').classList.add('active-tool');
+            if(tool !== 'pointer') { selectedItem = null; imgContextMenu.classList.add('hidden'); draw(); }
+        }
+
+        document.getElementById('btnPen').onclick = () => { tool = 'pen'; updateUI(); };
+        document.getElementById('btnEraser').onclick = () => { tool = 'eraser'; updateUI(); };
+        document.getElementById('btnPointer').onclick = () => { tool = 'pointer'; updateUI(); };
+        document.getElementById('btnPin').onclick = () => { tool = 'pin'; updateUI(); };
+        
+        document.getElementById('btnDark').onclick = () => {
+            isDark = !isDark;
+            mainToolbar.classList.toggle('dark-ui', isDark);
+            imgContextMenu.classList.toggle('dark-ui', isDark);
+            document.getElementById('btnDark').innerText = isDark ? "☀️" : "🌙";
+            draw();
+        };
+
+        document.getElementById('btnImgScaleUp').onclick = () => { if(selectedItem) updateDoc(doc(db, "desene", selectedItem.id), { w: selectedItem.w * 1.2, h: selectedItem.h * 1.2 }); };
+        document.getElementById('btnImgScaleDown').onclick = () => { if(selectedItem) updateDoc(doc(db, "desene", selectedItem.id), { w: selectedItem.w * 0.8, h: selectedItem.h * 0.8 }); };
+        document.getElementById('btnImgRotate').onclick = () => { if(selectedItem) updateDoc(doc(db, "desene", selectedItem.id), { rot: (selectedItem.rot || 0) + 45 }); };
+        document.getElementById('btnDeleteImg').onclick = () => { if(selectedItem) { deleteDoc(doc(db, "desene", selectedItem.id)); selectedItem = null; imgContextMenu.classList.add('hidden'); } };
+        document.getElementById('btnClear').onclick = () => { if(confirm("Ștergi tot?")) { addDoc(colRef, {t: Date.now(), type:'clear'}); imgContextMenu.classList.add('hidden'); } };
+
+        document.getElementById('imgInp').onchange = e => {
+            const f = e.target.files[0]; if(!f) return;
+            const r = new FileReader();
+            r.onload = v => {
+                const i = new Image();
+                i.onload = () => {
+                    const m = 300; let w = i.width, h = i.height;
+                    if(w > h) { if(w > m) { h *= m/w; w = m; } } else { if(h > m) { w *= m/h; h = m; } }
+                    const c = document.createElement('canvas'); c.width = w; c.height = h;
+                    c.getContext('2d').drawImage(i, 0, 0, w, h);
+                    addDoc(colRef, { t: Date.now(), type: 'img', src: c.toDataURL('image/jpeg', 0.5), x: window.innerWidth/2 - w/2, y: window.innerHeight/2 - h/2, w, h, rot: 0 });
+                    tool = 'pointer'; updateUI();
+                };
+                i.src = v.target.result;
+            };
+            r.readAsDataURL(f);
+        };
+    </script>
+</body>
+</html>
